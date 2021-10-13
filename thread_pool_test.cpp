@@ -121,7 +121,7 @@ ui32 count_unique_threads()
 {
     std::vector<std::thread::id> thread_IDs(pool.get_thread_count() * 4);
     for (std::thread::id &id : thread_IDs)
-        pool.push_task(store_ID, &id);
+        pool.push_task(store_ID, 0, &id);
     pool.wait_for_tasks();
     std::sort(thread_IDs.begin(), thread_IDs.end());
     ui32 unique_threads = (ui32)(std::unique(thread_IDs.begin(), thread_IDs.end()) - thread_IDs.begin());
@@ -173,7 +173,7 @@ void check_push_task()
     {
         bool flag = false;
         pool.push_task([](bool *flag)
-                       { *flag = true; },
+                       { *flag = true; }, 0, 
                        &flag);
         pool.wait_for_tasks();
         check(flag);
@@ -183,7 +183,7 @@ void check_push_task()
         bool flag1 = false;
         bool flag2 = false;
         pool.push_task([](bool *flag1, bool *flag2)
-                       { *flag1 = *flag2 = true; },
+                       { *flag1 = *flag2 = true; }, 0, 
                        &flag1, &flag2);
         pool.wait_for_tasks();
         check(flag1 && flag2);
@@ -199,14 +199,14 @@ void check_submit()
     {
         bool flag = false;
         auto my_future = pool.submit([&flag]
-                                     { flag = true; });
+                                     { flag = true; }, 0);
         check(my_future.get() && flag);
     }
     dual_println("Checking that submit() works for a function with one argument and no return value...");
     {
         bool flag = false;
         auto my_future = pool.submit([](bool *flag)
-                                     { *flag = true; },
+                                     { *flag = true; }, 0, 
                                      &flag);
         check(my_future.get() && flag);
     }
@@ -215,7 +215,7 @@ void check_submit()
         bool flag1 = false;
         bool flag2 = false;
         auto my_future = pool.submit([](bool *flag1, bool *flag2)
-                                     { *flag1 = *flag2 = true; },
+                                     { *flag1 = *flag2 = true; }, 0,
                                      &flag1, &flag2);
         check(my_future.get() && flag1 && flag2);
     }
@@ -226,7 +226,7 @@ void check_submit()
                                      {
                                          flag = true;
                                          return 42;
-                                     });
+                                     }, 0);
         check(my_future.get() == 42 && flag);
     }
     dual_println("Checking that submit() works for a function with one argument and a return value...");
@@ -236,7 +236,7 @@ void check_submit()
                                      {
                                          *flag = true;
                                          return 42;
-                                     },
+                                     }, 0, 
                                      &flag);
         check(my_future.get() == 42 && flag);
     }
@@ -248,7 +248,7 @@ void check_submit()
                                      {
                                          *flag1 = *flag2 = true;
                                          return 42;
-                                     },
+                                     }, 0,
                                      &flag1, &flag2);
         check(my_future.get() == 42 && flag1 && flag2);
     }

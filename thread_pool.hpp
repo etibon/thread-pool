@@ -22,7 +22,8 @@
 #include <iostream>    // std::cout, std::ostream
 #include <memory>      // std::shared_ptr, std::unique_ptr
 #include <mutex>       // std::mutex, std::scoped_lock
-#include <queue>       // std::queue
+#include <condition_variable> // std::condition_variable
+#include <vector>       // std::vectpr
 #include <thread>      // std::this_thread, std::thread
 #include <type_traits> // std::common_type_t, std::decay_t, std::enable_if_t, std::is_void_v, std::invoke_result_t
 #include <utility>     // std::move
@@ -37,6 +38,16 @@ class thread_pool
 {
     typedef std::uint_fast32_t ui32;
     typedef std::uint_fast64_t ui64;
+
+class task_rec
+{
+    public:
+        task_rec(std::function<void()> task_fn, int priority=0) : task_fn_(task_fn), priority_(priority)
+        {
+        }
+    int priority_;
+    std::function<void()> task_fn_;
+};
 
 public:
     // ============================
@@ -169,12 +180,21 @@ public:
      * @param task The function to push.
      */
     template <typename F>
-    void push_task(const F &task)
+    void push_task(const F &task, int priority=0)
     {
         tasks_total++;
         {
             const std::scoped_lock lock(queue_mutex);
-            tasks.push(std::function<void()>(task));
+            
+            for (auto i = tasks.begin(); i!= tasks.end(); i++)
+            {
+                if (i->priority_ < priority)
+                {
+                    tasks.emplace(i, task, priority);
+                    return;
+                }
+            }
+            tasks.emplace_back(task_rec(std::function<void()>(task), priority));
         }
     }
 
@@ -188,10 +208,10 @@ public:
      * @param args The arguments to pass to the function.
      */
     template <typename F, typename... A>
-    void push_task(const F &task, const A &...args)
+    void push_task(const F &task, int priority, const A &...args)
     {
         push_task([task, args...]
-                  { task(args...); });
+                  { task(args...); }, priority);
     }
 
     /**
@@ -223,7 +243,7 @@ public:
      * @return A future to be used later to check if the function has finished its execution.
      */
     template <typename F, typename... A, typename = std::enable_if_t<std::is_void_v<std::invoke_result_t<std::decay_t<F>, std::decay_t<A>...>>>>
-    std::future<bool> submit(const F &task, const A &...args)
+    std::future<bool> submit(const F &task, int priority=0, const A &...args)
     {
         std::shared_ptr<std::promise<bool>> task_promise(new std::promise<bool>);
         std::future<bool> future = task_promise->get_future();
@@ -244,7 +264,7 @@ public:
                           {
                           }
                       }
-                  });
+                  }, priority);
         return future;
     }
 
@@ -259,7 +279,7 @@ public:
      * @return A future to be used later to obtain the function's returned value, waiting for it to finish its execution if needed.
      */
     template <typename F, typename... A, typename R = std::invoke_result_t<std::decay_t<F>, std::decay_t<A>...>, typename = std::enable_if_t<!std::is_void_v<R>>>
-    std::future<R> submit(const F &task, const A &...args)
+    std::future<R> submit(const F &task, int priority, const A &...args)
     {
         std::shared_ptr<std::promise<R>> task_promise(new std::promise<R>);
         std::future<R> future = task_promise->get_future();
@@ -279,7 +299,7 @@ public:
                           {
                           }
                       }
-                  });
+                  }, priority);
         return future;
     }
 
@@ -358,8 +378,8 @@ private:
             return false;
         else
         {
-            task = std::move(tasks.front());
-            tasks.pop();
+            task = std::move(tasks.begin()->task_fn_);
+            tasks.erase(tasks.begin());
             return true;
         }
     }
@@ -405,6 +425,8 @@ private:
      */
     mutable std::mutex queue_mutex = {};
 
+    std::condition_variable cv;
+
     /**
      * @brief An atomic variable indicating to the workers to keep running. When set to false, the workers permanently stop working.
      */
@@ -413,7 +435,8 @@ private:
     /**
      * @brief A queue of tasks to be executed by the threads.
      */
-    std::queue<std::function<void()>> tasks = {};
+    // std::queue<std::function<void()>> tasks = {};
+    std::vector<task_rec> tasks = {};
 
     /**
      * @brief The number of threads in the pool.
