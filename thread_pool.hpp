@@ -195,6 +195,7 @@ public:
                 }
             }
             tasks.emplace_back(task_rec(std::function<void()>(task), priority));
+            cv.notify_all();
         }
     }
 
@@ -391,7 +392,11 @@ private:
     void sleep_or_yield()
     {
         if (sleep_duration)
-            std::this_thread::sleep_for(std::chrono::microseconds(sleep_duration));
+        {
+            std::unique_lock<std::mutex> lk(queue_mutex);
+            cv.wait_for(lk, std::chrono::microseconds(sleep_duration));
+            // std::this_thread::sleep_for(std::chrono::microseconds(sleep_duration));
+        }
         else
             std::this_thread::yield();
     }
